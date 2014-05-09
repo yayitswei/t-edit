@@ -4,6 +4,7 @@
 
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [reagent "0.4.2"]
+                 [org.clojure/core.async "0.1.301.0-deb34a-alpha"]
                  [org.clojure/clojurescript "0.0-2202"]]
 
   :plugins [[lein-cljsbuild "1.0.3"]]

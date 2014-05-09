@@ -31,12 +31,9 @@
                       :dragging false :rel-x 0 :rel-y 0
                       :highlight true}))
 
-(def comms {:mouse-move {:mult (async/mult mouse-move-ch)
-                         :ch mouse-move-ch}
-            :mouse-down {:mult (async/mult mouse-down-ch)
-                         :ch mouse-down-ch}
-            :mouse-up {:mult (async/mult mouse-up-ch)
-                       :ch mouse-up-ch}})
+(def comms {:mouse-move (async/mult mouse-move-ch)
+            :mouse-down (async/mult mouse-down-ch)
+            :mouse-up (async/mult mouse-up-ch)})
 
 (def transients (atom {}))
 
@@ -92,16 +89,19 @@
           (alt! move ([e] (resize-move e))
                 up ([e] (resize-end e)))))
     (fn []
-      [:rect {:on-mouse-down (fn [e]
-                               (.preventDefault e)
-                               (resize-start e))
+      [:image {:on-mouse-down (fn [e]
+                                (.preventDefault e)
+                                (.stopPropagation e)
+                                (resize-start e))
 
-              :on-mouse-up (fn [e] (resize-end e))
+               :on-mouse-up (fn [e] (resize-end e))
 
-              :x (+ (:x @component) (:width @component))
-              :y (+ (:y @component) (:height @component))
-              :height 20 :width 20
-              :style {:stroke "#00000ff" :fill "#0000ff"}}])))
+               :href "scale.png"
+
+               :x (+ (:x @component) (:width @component))
+               :y (+ (:y @component) (:height @component))
+               :height 20 :width 20
+               :style {:stroke "#00000ff" :fill "#0000ff"}}])))
 
 (defn transform-matrix [elem]
   [(:scale-x elem 1) 0 0 (:scale-y elem 1) (:x elem 0) (:y elem 0)])
@@ -133,6 +133,7 @@
        [:svg {
               :on-mouse-down (fn [e]
                                (.preventDefault e)
+                               (.stopPropagation e)
                                (drag-start e))
 
               :on-mouse-up (fn [e]
@@ -169,7 +170,7 @@
                   :y (:y @component)
                   :width (:width @component)
                   :height (:height @component)
-                                        ;          :style {:pointer-events :none}
+;          :style {:pointer-events :none}
                   }]
           [resize-button]]))
 

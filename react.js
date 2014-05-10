@@ -6520,7 +6520,8 @@ var ReactDOM = mapObject({
   stop: false,
   svg: false,
   text: false,
-  tspan: false
+  tspan: false,
+  image: false
 }, createDOMComponentClass);
 
 var injection = {
@@ -13187,7 +13188,9 @@ var SVGDOMPropertyConfig = {
     x: MUST_USE_ATTRIBUTE,
     y1: MUST_USE_ATTRIBUTE,
     y2: MUST_USE_ATTRIBUTE,
-    y: MUST_USE_ATTRIBUTE
+    y: MUST_USE_ATTRIBUTE,
+    xmlnsXlink: MUST_USE_ATTRIBUTE,
+    xlinkHref: MUST_USE_ATTRIBUTE
   },
   DOMAttributeNames: {
     gradientTransform: 'gradientTransform',
@@ -13200,7 +13203,9 @@ var SVGDOMPropertyConfig = {
     strokeLinecap: 'stroke-linecap',
     strokeWidth: 'stroke-width',
     textAnchor: 'text-anchor',
-    viewBox: 'viewBox'
+    viewBox: 'viewBox',
+    xmlnsXlink: 'xmlns:xlink',
+    xlinkHref: 'xlink:href'
   }
 };
 
@@ -16032,7 +16037,9 @@ var shouldWrap = {
   'radialGradient': true,
   'rect': true,
   'stop': true,
-  'text': true
+  'text': true,
+  'tspan': true,
+  'image': true
 };
 
 var selectWrap = [1, '<select multiple="true">', '</select>'];
@@ -16073,7 +16080,9 @@ var markupWrap = {
   'radialGradient': svgWrap,
   'rect': svgWrap,
   'stop': svgWrap,
-  'text': svgWrap
+  'text': svgWrap,
+  'tspan': svgWrap,
+  'image': svgWrap
 };
 
 /**

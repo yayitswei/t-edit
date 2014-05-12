@@ -1,19 +1,35 @@
 *.unselectable {
-   -moz-user-select: -moz-none;
-   -khtml-user-select: none;
-   -webkit-user-select: none;
+  -moz-user-select: -moz-none;
+  -khtml-user-select: none;
+  -webkit-user-select: none;
 
-   /*
+  /*
      Introduced in IE 10.
      See http://ie.microsoft.com/testdrive/HTML5/msUserSelect/
-   */
-   -ms-user-select: none;
-   user-select: none;
+ */
+  -ms-user-select: none;
+  user-select: none;
 }
 
 #debug {
   position: fixed;
   bottom: 0px; left: 0px;
+  display: none;
+}
+
+.art-selector {
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 1px;
+  list-style: none;
+  width: 500px;
+}
+
+.art-selection {
+  border: 1px solid #ccc;
+  margin: 2px;
+  width: 200px;
+  height: 100px;
 }
 
 .color-selector {
@@ -75,4 +91,9 @@ li.elem-color-selection {
 #measure-canvas {
   position: absolute;
   top: 0px;
+}
+
+.right-align-group {
+  position: absolute;
+  right: 0px;
 }

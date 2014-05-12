@@ -10,3 +10,69 @@
    -ms-user-select: none;
    user-select: none;
 }
+
+#debug {
+  position: fixed;
+  bottom: 0px; left: 0px;
+}
+
+.color-selector {
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 1px;
+  list-style: none;
+}
+
+.color-selection {
+  border: 1px solid #ccc;
+  margin: 2px;
+  width: 19px;
+  height: 19px;
+}
+
+.color-selector li:hover{
+  border: 1px;
+}
+
+ul.shirt-color-selector {
+  display: inline;
+}
+
+ul.shirt-color-selector li {
+  width: 29px;
+  height: 29px;
+}
+
+ul.elem-color-selector {
+  width: 97px;
+}
+
+li.elem-color-selection {
+  display: inline-block;
+}
+
+#the-editor {
+  position: relative;
+}
+
+.shirt-background {
+  transition: all 0.5s ease;
+}
+
+.form-group {
+  margin-left: 5px;
+  margin-right: 5px;
+}
+
+.dropdown-menu {
+  min-width: 0px;
+}
+
+.font-selector {
+  width: 300px;
+}
+
+#measure-canvas {
+  position: absolute;
+  top: 0px;
+}

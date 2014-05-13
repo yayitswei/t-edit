@@ -14,7 +14,8 @@
 #debug {
   position: fixed;
   bottom: 0px; left: 0px;
-  display: none;
+ /* display: none;
+*/
 }
 
 .art-selector {
@@ -22,7 +23,7 @@
   border-radius: 3px;
   padding: 1px;
   list-style: none;
-  width: 500px;
+  width: 905px;
 }
 
 .art-selection {
@@ -101,3 +102,17 @@ li.elem-color-selection {
 .caret.with-margin {
   margin-left: 5px;
 }
+
+.inline-block-selection {
+  display: inline-block;
+  width: 150px;
+  height: 150px;
+  overflow: hidden;
+}
+
+/*
+a.inline-block-selection-link {
+  display: inline-block;
+  width: 30px;
+}
+*/

@@ -18,7 +18,8 @@
 
 (def single-event-channels #{:mouse-move :mouse-down :mouse-up
                              :text-change :selection-change
-                             :file-drag-over :file-drop})
+                             :file-drag-over :file-drag-leave :file-drag-end
+                             :file-loaded})
 
 (defonce comms (into {} (map #(vector % (single-event-channel)) single-event-channels)))
 
@@ -220,6 +221,8 @@
 
 ;; dom manipulation/query
 
+(defn get-element [id] (. js/document (getElementById (name id))))
+
 (defn set-cursor! [cursor-type]
   (aset js/document "body" "style" "cursor" (name cursor-type)))
 
@@ -227,10 +230,16 @@
   [el]
   (g-array/toArray (g-dom/getChildren el)))
 
-; dev only
-;(def pattern (merge @default-elem-props @default-art-elem-props (first (:art config))))
-;(create-elem! pattern)
-;(reset! selected nil)
+(defn set-visible! [element-id visible?]
+  (aset (get-element element-id) "style" "display" (if visible? "block" "none")))
+
+;; js interop
+
+(defn js-to-list [js-col]
+  (-> (clj->js [])
+      (.-slice)
+      (.call js-col)
+      (js->clj)))
 
 ;; drag fns
 
@@ -253,8 +262,6 @@
 
 (defn transform-matrix-str [elem]
   (apply transform-str (transform-matrix elem)))
-
-(defn get-element [id] (. js/document (getElementById id)))
 
 (defn constrain [v min-v max-v]
   (cond (< v min-v) min-v
@@ -316,17 +323,21 @@
 
 (defmulti render-elem :type)
 
-(defn art-path [{:keys [d scale x y color color-preview outline-color id] :as elem}]
-  [:g (if (coll? d)
-        (for [[idx segment] (map-indexed vector d)]
-          ^{:key idx} [:path {:fill (or color-preview color)
-                              :stroke (or outline-color color-preview color)
-                              :d segment
-                              :transform (transform-matrix-str elem)}])
-        [:path {:fill (or color-preview color)
-                :stroke (or outline-color color-preview color)
-                :d d
-                :transform (transform-matrix-str elem)}])])
+(defn art-path [{:keys [d scale x y color color-preview outline-color id url] :as elem}]
+  [:g
+   (cond d
+         (if (coll? d)
+           (for [[idx segment] (map-indexed vector d)]
+             ^{:key idx} [:path {:fill (or color-preview color)
+                                 :stroke (or outline-color color-preview color)
+                                 :d segment
+                                 :transform (transform-matrix-str elem)}])
+           [:path {:fill (or color-preview color)
+                   :stroke (or outline-color color-preview color)
+                   :d d
+                   :transform (transform-matrix-str elem)}])
+         url
+         [:image {:width 100 :height 100 :xlink-href url :transform (transform-matrix-str elem)}])])
 
 (declare -bounding-box)
 (defn -center-art
@@ -673,7 +684,8 @@
   [:form {:id "options" :class "form-inline"}
    [art-selector]
    [color-selector]
-   [switcher]])
+   [switcher]
+   [:div.form-group [:span "Add art from the library or drag an image onto the page."]]])
 
 (defn options-component []
   (case @active-options :text (text-options) :art (art-options)))
@@ -711,13 +723,15 @@
   (route-event-to-channel! :mousemove :mouse-move)
 
   (route-event-to-channel! :dragover :file-drag-over {:prevent-default? true})
-  (route-event-to-channel! :drop :file-drop {:prevent-default? true})
+  (route-event-to-channel! :dragleave :file-drag-leave {:prevent-default? true})
+  (route-event-to-channel! :dragend :file-drag-end {:prevent-default? true})
+;  (route-event-to-channel! :drop :file-drop {:prevent-default? true}) channel doesn't convey file
 
   (js/window.addEventListener "keydown"
                               (fn [e] (case (.-keyCode e)
                                         13
                                         (do (.preventDefault e)
-                                            (println "prevented submission"))
+                                            (println "Prevented form submission"))
                                         8
                                         (when (not= "text" (aget e "target" "type"))
                                           (.preventDefault e)
@@ -725,6 +739,16 @@
                                             (delete-elem! @selected)))
                                         #_(println "Key pressed: " (.-keyCode e))
                                         :nop)))
+
+  (js/window.addEventListener "drop"
+                              (fn [e]
+                                (.preventDefault e)
+                                (set-visible! :drop-note false)
+                                (let [files (js-to-list (aget e "dataTransfer" "files"))
+                                      file (get files 0)
+                                      reader (js/FileReader.)]
+                                  (aset reader "onload" #(put! (get-channel :file-loaded) %))
+                                  (.readAsDataURL reader file))))
 
   (add-watch selected :selection-change
              (fn [k r o n]
@@ -736,7 +760,9 @@
   (let [text-change (async/tap (get-mult :text-change) (chan))
         selection-change (async/tap (get-mult :selection-change) (chan))
         file-drag-over (async/tap (get-mult :file-drag-over) (chan))
-        file-drop (async/tap (get-mult :file-drop) (chan))]
+        file-drag-leave (async/tap (get-mult :file-drag-leave) (chan))
+        file-drag-end (async/tap (get-mult :file-drag-end) (chan))
+        file-loaded (async/tap (get-mult :file-loaded) (chan))]
       (go (while true
             (alt! text-change
                   ([v]
@@ -744,15 +770,23 @@
                   selection-change
                   ([{:keys [old new]}]
                      ;(swap! debug assoc :selection-old old :selection-new new)
-                     (reset! debug (dissoc (selected-elem) :d))
+                     (reset! debug (dissoc (selected-elem) :d :url))
                      (when (= old @highlighted) (reset! highlighted nil))
                      (when (and (not (nil? new))
                                 (not= (:type (selected-elem)) @active-options))
                        (reset! active-options (:type (selected-elem)))))
                   file-drag-over
-                  ([e] (println "file drag over"))
-                  file-drop
-                  ([e] (println "file drop")))))))
+                  ([e] (.preventDefault e) (set-visible! :drop-note true))
+                  file-drag-leave
+                  ([e] (.preventDefault e)
+                     (set-visible! :drop-note false))
+                  file-drag-end
+                  ([e] (.preventDefault e)
+                     (set-visible! :drop-note false))
+                  file-loaded
+                  ([e]
+                   (create-elem! (merge @default-elem-props @default-art-elem-props
+                                        {:url (aget e "target" "result")}))))))))
 
 
 (defn init! []

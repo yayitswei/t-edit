@@ -14,6 +14,7 @@
 #debug {
   position: fixed;
   bottom: 0px; left: 0px;
+  display: none;
 }
 
 .art-selector {
@@ -95,4 +96,8 @@ li.elem-color-selection {
 .right-align-group {
   position: absolute;
   right: 0px;
+}
+
+.caret.with-margin {
+  margin-left: 5px;
 }

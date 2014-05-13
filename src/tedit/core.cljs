@@ -186,6 +186,9 @@
 (defn font->font-family-str [[font style]]
   (str "'" font "', " style))
 
+(defn set-cursor! [cursor-type]
+  (aset js/document "body" "style" "cursor" (name cursor-type)))
+
 ; dev only
 ;(def pattern (merge @default-elem-props @default-art-elem-props (first (:art config))))
 ;(create-elem! pattern)
@@ -200,7 +203,9 @@
 (defn drag-start [e]
   (reset! transients {:mouse-start-state {:x (.-pageX e) :y (.-pageY e)}
                       :elem-start-state (selected-elem)})
-  (swap-selected-elem! merge {:dragging true}))
+  (swap-selected-elem! merge {:dragging true})
+  (swap! bounding-boxes dissoc @selected)
+  (set-cursor! :move))
 
 (defn transform-matrix [elem]
   [(:scale-x elem 1) 0 0 (:scale-y elem 1) (:x elem 0) (:y elem 0)])
@@ -228,9 +233,10 @@
     #_(swap! debug merge {:font-size new-font-size :deltas (print-str deltas)
                         :dominant-delta (dominant Math/abs deltas)})
     (case (:type elem-start-state)
-      :text {:font-size (max (+ (:font-size elem-start-state) (dominant Math/abs deltas)) 10)}
-      :art {:scale (max (+ (:scale elem-start-state) (/ (dominant Math/abs deltas) 100)) 0.1)})
-    ))
+      :text {:font-size (max (+ (:font-size elem-start-state)
+                                (dominant Math/abs deltas)) 10)}
+      :art {:scale (max (+ (:scale elem-start-state)
+                           (/ (dominant Math/abs deltas) 100)) 0.1)})))
 
 (defn drag-move [e]
   (when (:dragging (selected-elem))
@@ -238,12 +244,15 @@
 
 (defn drag-end [e]
   (when (:dragging (selected-elem))
-    (swap-selected-elem! merge (e->translation e @transients) {:dragging false})))
+    (swap-selected-elem! merge (e->translation e @transients) {:dragging false})
+    (set-cursor! :auto)))
 
 (defn resize-start [e]
   (reset! transients {:mouse-start-state {:x (.-pageX e) :y (.-pageY e)}
                       :elem-start-state (selected-elem)})
-  (swap-selected-elem! merge {:resizing true}))
+  (swap-selected-elem! merge {:resizing true})
+  (swap! bounding-boxes dissoc @selected)
+  (set-cursor! :se-resize))
 
 (defn resize-move [e]
   (when (:resizing (selected-elem))
@@ -251,7 +260,8 @@
 
 (defn resize-end [e]
   (when (:resizing (selected-elem))
-    (swap-selected-elem! merge (e->scale e @transients) {:resizing false})))
+    (swap-selected-elem! merge (e->scale e @transients) {:resizing false})
+    (set-cursor! :auto)))
 
 (defn debug-component []
   (if-not (empty? @debug)
@@ -266,17 +276,16 @@
 (defmulti render-elem :type)
 
 (defmethod render-elem :art
-  [{:keys [d width height scale x y color color-preview outline-color id]}]
+  [{:keys [d scale x y color color-preview outline-color id]}]
   [:g
    [:path {:fill (or color-preview color)
-              :stroke (or outline-color color-preview color)
-              :d d
-              :width width
-              :height height
-              :transform (when (or x y scale)
-                           (apply transform-str
-                                  (transform-matrix
-                                   {:x x :y y :scale-x scale :scale-y scale})))}]])
+           :stroke (or outline-color color-preview color)
+           :d d
+           :transform (when (or x y scale)
+                        (apply transform-str
+                               (transform-matrix
+                                {:x x
+                                 :y y :scale-x scale :scale-y scale})))}]])
 
 (defmethod render-elem :text
   [{:keys [type color color-preview x y outline-color
@@ -308,16 +317,16 @@
          :on-mouse-up (fn [e] (drag-end e))
          :on-mouse-over (fn [e] (reset! highlighted id))
          :on-mouse-out (fn [e] (reset! highlighted nil))}
-     (render-elem elem)
-     ]))
+     (render-elem elem)]))
 
 (defn -bounding-box [this]
   (let [bb (.getBBox (reagent/dom-node this))]
     {:x (.-x bb) :y (.-y bb) :width (.-width bb) :height (.-height bb)}))
 
 (defn -update-bounding-box [this]
-  (let [{id :id} (reagent/props this)]
-    (swap! bounding-boxes assoc id (-bounding-box this))))
+  (let [{:keys [id dragging resizing]} (reagent/props this)]
+    (when-not (or dragging resizing)
+      (swap! bounding-boxes assoc id (-bounding-box this)))))
 
 (def rect-component-with-meta
   (with-meta rect-component
@@ -368,6 +377,7 @@
 
 (defn delete-button [bb]
   [:image {:key "delete-button"
+           :style {:cursor "pointer"}
            :on-mouse-down (fn [e]
                             (.preventDefault e)
                             (.stopPropagation e)
@@ -462,8 +472,7 @@
      (shirt-img "shirt-back.png" (- canvas-width (/ canvas-width 4) (/ width 2)))]))
 
 (defn shirt-color-selection [[color title]]
-  [:li {;(clojure.string/replace color "#" "")
-        :class "color-selection"
+  [:li {:class "color-selection"
         :style {:background color}
         :on-mouse-down (fn [_]
                          (swap! options assoc
@@ -512,8 +521,7 @@
                      :margin "2px 0 -2px 0"
                      :background (or (:color (selected-elem))
                                      (:color @default-elem-props))}}]
-      [:span {:class "caret"
-              :style {:margin-left "5px"}}]]]
+      [:span.caret.with-margin]]]
     [:ul {:class "dropdown-menu elem-color-selector color-selector" :role "menu"}
      (for [c (:elem-colors config)] ^{:key c} [color-selection c])]]])
 
@@ -549,8 +557,7 @@
                       :font-family (font->font-family-str displayed-font)
                       :margin 0}}
         font-name
-        [:span {:class "caret"
-                :style {:margin-left "5px"}}]])]
+        [:span.caret.with-margin]])]
     [:ul {:class "dropdown-menu font-selector"
           :role "menu"
           :aria-labelledby "font-selector-label"}
@@ -594,8 +601,7 @@
               :style {:display "inline-block"
                       :margin 0}}
         "Library"
-        [:span {:class "caret"
-                :style {:margin-left "5px"}}]])]
+        [:span.caret.with-margin]])]
     [:ul {:class "dropdown-menu art-selector"
           :role "menu"
           :aria-labelledby "art-selector-label"}
@@ -622,8 +628,10 @@
        ^{:key (str "elem-" id)} [rect-component-with-meta (assoc elem :id id)])
      (when (and @highlighted (not= @selected @highlighted))
        (when-let [bb (@bounding-boxes @highlighted)] [highlight-box bb]))
-     (when-let [bb (@bounding-boxes @selected)]
-       [controls-component bb])]]
+     (when-let [{:keys [id dragging resizing]} (selected-elem)]
+       (when-let [bb (@bounding-boxes id)]
+         (when-not (or dragging resizing)
+           [controls-component bb])))]]
    [options-component]
    [shirt-color-selector]])
 

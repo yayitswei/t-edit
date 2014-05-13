@@ -139,7 +139,8 @@
 (defonce options (atom {:text-field ""
                         :shirt-color "#fff"
                         :shirt-color-preview "#fff"}))
-(defonce active-options (atom :art))
+(defonce active-options (atom :text))
+(defonce bounding-boxes (atom {}))
 
 ;; util
 
@@ -186,9 +187,9 @@
   (str "'" font "', " style))
 
 ; dev only
-(def pattern (merge @default-elem-props @default-art-elem-props (first (:art config))))
-(create-elem! pattern)
-(reset! selected nil)
+;(def pattern (merge @default-elem-props @default-art-elem-props (first (:art config))))
+;(create-elem! pattern)
+;(reset! selected nil)
 
 ;; drag fns
 
@@ -208,30 +209,6 @@
   (str "matrix(" (clojure.string/join "," args) ")"))
 
 (defn get-element [id] (. js/document (getElementById id)))
-
-(defn text-measurements [{:keys [font-size font text] :as elem}]
-  (let [text-node (get-element "measure-text")
-        tspan-node (get-element "measure-tspan")
-        _ (.setAttribute text-node "font-size" font-size)
-        _ (.setAttribute text-node "font-family" (font->font-family-str font))
-        _ (aset tspan-node "textContent" text)
-        bb (.getBBox text-node)
-        bounding-box {:width (.-width bb) :height (.-height bb)}]
-    bounding-box))
-
-#_(defmulti bounding-box :type)
-#_(defmethod bounding-box :text [elem]
-  (let [m (text-measurements elem)]
-    {:x (- (:x elem) (/ (:width m) 2))
-     :y (+ (- (:y elem) (:height m)) (* (:height m) 0.1))
-     :width (:width m)
-     :height (* (:height m) 1)}))
-
-(defn bounding-box [{:keys [id x y] :as elem}]
-  (if-let [node (get-element (str "elem-" id))]
-    (let [bb (.getBBox node)
-          bounding-box {:x (.-x bb) :y (.-y bb) :width (.-width bb) :height (.-height bb)}]
-      bounding-box)))
 
 (defn constrain [v min-v max-v]
   (cond (< v min-v) min-v
@@ -279,26 +256,27 @@
 (defn debug-component []
   (if-not (empty? @debug)
     [:div
-     "debug"
+     [:div "Elem IDs: " (print-str (keys @elems))]
+     [:span "debug"]
      (for [[prop v] @debug]
        [:div {:key prop}
         [:span (name prop) ": "]
-        [:span v]])]
-    [:div]))
+        [:span (str v)]])]))
 
 (defmulti render-elem :type)
 
 (defmethod render-elem :art
-  [{:keys [d width height scale x y color color-preview outline-color]}]
-  [:path {:fill (or color-preview color)
-          :stroke (or outline-color color-preview color)
-          :d d
-          :width width
-          :height height
-          :transform (when (or x y scale)
-                       (apply transform-str
-                              (transform-matrix
-                               {:x x :y y :scale-x scale :scale-y scale})))}])
+  [{:keys [d width height scale x y color color-preview outline-color id]}]
+  [:g
+   [:path {:fill (or color-preview color)
+              :stroke (or outline-color color-preview color)
+              :d d
+              :width width
+              :height height
+              :transform (when (or x y scale)
+                           (apply transform-str
+                                  (transform-matrix
+                                   {:x x :y y :scale-x scale :scale-y scale})))}]])
 
 (defmethod render-elem :text
   [{:keys [type color color-preview x y outline-color
@@ -316,26 +294,35 @@
   [{:keys [x y]}]
   [:text {:x x :y y} "INVALID TYPE"])
 
-(defn rect-component [id]
-  (let [move (async/tap (get-mult :mouse-move) (chan))
-        up (async/tap (get-mult :mouse-up) (chan))]
-    (go (while true
-          (alt! move ([e] (drag-move e))
-                up ([e] (drag-end e)))))
+(defn rect-component []
+  (let [this (reagent/current-component)
+        {id :id :as elem} (reagent/props this)]
+    [:g {:key id
+         :id (str "elem-" id)
+         :on-mouse-down (fn [e]
+                          (.preventDefault e)
+                          (.stopPropagation e)
+                          (reset! selected id)
+                          (drag-start e))
+         :pointer-events "boundingBox" ; doesn't work
+         :on-mouse-up (fn [e] (drag-end e))
+         :on-mouse-over (fn [e] (reset! highlighted id))
+         :on-mouse-out (fn [e] (reset! highlighted nil))}
+     (render-elem elem)
+     ]))
 
-    (fn []
-      [:g {:key id
-           :id (str "elem-" id)
-           :on-mouse-down (fn [e]
-                            (.preventDefault e)
-                            (.stopPropagation e)
-                            (reset! selected id)
-                            (drag-start e))
-           :pointer-events "boundingBox"
-           :on-mouse-up (fn [e] (drag-end e))
-           :on-mouse-over (fn [e] (reset! highlighted id))
-           :on-mouse-out (fn [e] (reset! highlighted nil))}
-       (render-elem (assoc (@elems id) :id id))])))
+(defn -bounding-box [this]
+  (let [bb (.getBBox (reagent/dom-node this))]
+    {:x (.-x bb) :y (.-y bb) :width (.-width bb) :height (.-height bb)}))
+
+(defn -update-bounding-box [this]
+  (let [{id :id} (reagent/props this)]
+    (swap! bounding-boxes assoc id (-bounding-box this))))
+
+(def rect-component-with-meta
+  (with-meta rect-component
+    {:component-did-mount -update-bounding-box
+     :component-did-update -update-bounding-box}))
 
 (defn drag-button []
   (let [move (async/tap (get-mult :mouse-move) (chan))
@@ -343,20 +330,20 @@
     (go (while true
           (alt! move ([e] (drag-move e))
                 up ([e] (drag-end e)))))
-    (fn []
-      (let [bb (bounding-box (selected-elem))]
-        [:image {:on-mouse-down (fn [e]
-                                  (.preventDefault e)
-                                  (.stopPropagation e)
-                                  (drag-start e))
+    (fn [bb]
+      [:image {:key "drag-button"
+               :on-mouse-down (fn [e]
+                                (.preventDefault e)
+                                (.stopPropagation e)
+                                (drag-start e))
 
-                 :on-mouse-up (fn [e] (drag-end e))
+               :on-mouse-up (fn [e] (drag-end e))
 
-                 :xlink-href "drag.png"
+               :xlink-href "drag.png"
 
-                 :x (- (:x bb) 20)
-                 :y (- (:y bb) 20)
-                 :height 20 :width 20}]))))
+               :x (- (:x bb) 20)
+               :y (- (:y bb) 20)
+               :height 20 :width 20}])))
 
 (defn resize-button []
   (let [move (async/tap (get-mult :mouse-move) (chan))
@@ -364,89 +351,90 @@
     (go (while true
           (alt! move ([e] (resize-move e))
                 up ([e] (resize-end e)))))
-    (fn []
-      (let [bb (bounding-box (selected-elem))]
-        [:image {:on-mouse-down (fn [e]
-                                  (.preventDefault e)
-                                  (.stopPropagation e)
-                                  (resize-start e))
+    (fn [bb]
+      [:image {:key "resize-button"
+               :on-mouse-down (fn [e]
+                                (.preventDefault e)
+                                (.stopPropagation e)
+                                (resize-start e))
 
-                 :on-mouse-up (fn [e] (resize-end e))
+               :on-mouse-up (fn [e] (resize-end e))
 
-                 :xlink-href "scale.png"
+               :xlink-href "scale.png"
 
-                 :x (+ (:x bb) (:width bb))
-                 :y (+ (:y bb) (:height bb))
-                 :height 20 :width 20}]))))
+               :x (+ (:x bb) (:width bb))
+               :y (+ (:y bb) (:height bb))
+               :height 20 :width 20}])))
 
-(defn delete-button []
-  (let [bb (bounding-box (selected-elem))]
-    [:image {
-             :on-mouse-down (fn [e]
-                              (.preventDefault e)
-                              (.stopPropagation e)
-                              (delete-elem! @selected))
+(defn delete-button [bb]
+  [:image {:key "delete-button"
+           :on-mouse-down (fn [e]
+                            (.preventDefault e)
+                            (.stopPropagation e)
+                            (delete-elem! @selected))
 
-             :xlink-href "delete.png"
+           :xlink-href "delete.png"
 
-             :x (- (:x bb) 20)
-             :y (+ (:y bb) (:height bb))
-             :height 20 :width 20}]))
+           :x (- (:x bb) 20)
+           :y (+ (:y bb) (:height bb))
+           :height 20 :width 20}])
 
-(defn rotate-button []
-  (let [bb (bounding-box (selected-elem))]
-    [:image {
-             :on-mouse-down (fn [e]
-                              (.preventDefault e)
-                              (.stopPropagation e)
-                              ; nop
-                              )
+(defn rotate-button [bb]
+  [:image {:key "rotate-button"
+           :on-mouse-down (fn [e]
+                            (.preventDefault e)
+                            (.stopPropagation e)
+                                        ; nop
+                            )
 
-             :xlink-href "rotate.png"
+           :xlink-href "rotate.png"
 
-             :x (+ (:x bb) (:width bb))
-             :y (- (:y bb) 20)
-             :height 20 :width 20}]))
+           :x (+ (:x bb) (:width bb))
+           :y (- (:y bb) 20)
+           :height 20 :width 20}])
 
 (defn controls-component []
-  (fn [] [:g
-          [:rect (merge (bounding-box (selected-elem))
-                        {:fill :none
-                         :stroke-dasharray "4,3"
-                         :stroke "#000000"})]
-          [drag-button]
-          [resize-button]
-          [delete-button]
-          [rotate-button]]))
+  (fn [bounding-box]
+    [:g
+     [:rect (merge bounding-box
+                   {:fill :none
+                    :stroke-dasharray "4,3"
+                    :stroke "#000000"})]
+     [drag-button bounding-box]
+     [resize-button bounding-box]
+     [delete-button bounding-box]
+     [rotate-button bounding-box]]))
 
-(defn highlight-box []
-  [:rect (merge (bounding-box (highlighted-elem))
-                {:fill :none
-                 :stroke "#000000"})])
+(defn highlight-box [bb]
+  [:rect (merge bb {:fill :none :stroke "#000000"})])
 
 (defn text-field []
-  (let [text-change (async/tap (get-mult :text-change) (chan))
-        selection-change (async/tap (get-mult :selection-change) (chan))]
-    (go (while true
-          (alt! text-change
-                ([v] (if @selected
-                       (swap-selected-elem! assoc :text v)
-                       (create-elem! (merge @default-elem-props
-                                            @default-text-elem-props
-                                            {:text v}))))
-                selection-change
-                ([_]
-                 (swap! options assoc :text-field (:text (selected-elem)))))))
-    (fn []
-      [:div {:class "form-group"}
-       [:input {:type "text" :placeholder "Add your text here"
-                :class "form-control input-lg"
-                :style {:width "300px"}
-                :on-change (fn [e]
-                             (swap! options assoc :text-field (.. e -target -value))
-                             (put! (get-channel :text-change) (.. e -target -value))
-                             )
-                :value (:text (selected-elem) "")}]])))
+  [:div {:class "form-group"}
+   [:input {:type "text" :placeholder "Add your text here"
+            :class "form-control input-lg"
+            :style {:width "300px"}
+            :on-change (fn [e]
+                         (swap! options assoc :text-field (.. e -target -value))
+                         (put! (get-channel :text-change) (.. e -target -value)))
+            :value (:text (selected-elem) "")}]])
+
+(def text-field-with-meta
+  (with-meta text-field
+    {:component-will-mount
+     (fn []
+       (go (let [text-change (async/tap (get-mult :text-change) (chan))
+                 selection-change (async/tap (get-mult :selection-change) (chan))]
+             (while true
+               (alt! text-change
+                     ([v] (if @selected
+                            (swap-selected-elem! assoc :text v)
+                            (create-elem! (merge @default-elem-props
+                                                 @default-text-elem-props
+                                                 {:text v}))))
+                     selection-change
+                     ([_]
+                        (swap! options assoc
+                               :text-field (:text (selected-elem)))))))))}))
 
 (def fudge [10 1])
 
@@ -469,12 +457,12 @@
 (defn shirts []
   (let [width (get-in config [:shirt-dimensions 0])
         canvas-width (get-in config [:canvas-width])]
-    [:g
+    [:g {:key "shirts"}
      (shirt-img "shirt.png" (- (/ canvas-width 4) (/ width 2)))
      (shirt-img "shirt-back.png" (- canvas-width (/ canvas-width 4) (/ width 2)))]))
 
 (defn shirt-color-selection [[color title]]
-  [:li {:key color
+  [:li {;(clojure.string/replace color "#" "")
         :class "color-selection"
         :style {:background color}
         :on-mouse-down (fn [_]
@@ -493,13 +481,12 @@
         :style {:position "absolute"
                 :bottom "80px"
                 :left (str (- (/ (get-in config [:canvas-width]) 2) 12) "px")}}
-   (for [s (:shirt-colors config)]
-     [shirt-color-selection s])])
+   (for [[color title :as s] (:shirt-colors config)]
+     ^{:key color} [shirt-color-selection s])])
 
 ;; elem-color-selection
 (defn color-selection [color]
-  [:li {:key color
-        :class "elem-color-selection color-selection"
+  [:li {:class "elem-color-selection color-selection"
         :style {:background color}
         :on-mouse-over (fn [_]
                          (when @selected
@@ -528,11 +515,10 @@
       [:span {:class "caret"
               :style {:margin-left "5px"}}]]]
     [:ul {:class "dropdown-menu elem-color-selector color-selector" :role "menu"}
-     (for [c (:elem-colors config)] [color-selection c])]]])
+     (for [c (:elem-colors config)] ^{:key c} [color-selection c])]]])
 
 (defn font-selection [[font style :as f]]
-  [:li {:key font
-        :class ""
+  [:li {:class ""
         :role "presentation"
         :style {:font-family (font->font-family-str f)}
         }
@@ -547,8 +533,7 @@
                       (swap! default-text-elem-props assoc :font f)))
         :on-mouse-out (fn [_]
                         (when @selected
-                          (swap-selected-elem! dissoc :font-preview)))
-        } font]])
+                          (swap-selected-elem! dissoc :font-preview)))} font]])
 
 (defn font-selector []
   [:div {:class "form-group"}
@@ -569,7 +554,7 @@
     [:ul {:class "dropdown-menu font-selector"
           :role "menu"
           :aria-labelledby "font-selector-label"}
-     (for [f (:fonts config)] [font-selection f])]]])
+     (for [[font-name :as f] (:fonts config)] ^{:key font-name} [font-selection f])]]])
 
 (defn switcher []
   [:div {:class "form-group right-align-group"}
@@ -582,14 +567,13 @@
 
 (defn text-options []
   [:form {:id "options" :class "form-inline"}
-   [text-field]
+   [text-field-with-meta]
    [color-selector]
    [font-selector]
    [switcher]])
 
-(defn art-selection [{:keys [id] :as art}]
-  [:li {:key id
-        :class ""
+(defn art-selection [art]
+  [:li {:class ""
         :role "presentation"}
    [:a {:role "menuitem"
         :on-click (fn [e]
@@ -616,7 +600,7 @@
           :role "menu"
           :aria-labelledby "art-selector-label"}
      (for [[idx a] (map-indexed #(vector %1 %2) (:art config))]
-       [art-selection (assoc a :id idx)])]]])
+       ^{:key idx} [art-selection (assoc a :art-id idx)])]]])
 
 (defn art-options []
   [:form {:id "options" :class "form-inline"}
@@ -629,17 +613,17 @@
 
 (defn canvas-component []
   [:div {:id "the-editor"}
-
-   [:div {:style {;:border "1px solid black"
-                  :display :inline-block}}
+   [:div {:style {:display :inline-block}}
     [:svg {:width (:canvas-width config) :height (:canvas-height config)
            :on-mouse-down (fn [e] (reset! selected nil))
            :class "unselectable"}
-     [shirts]
-     (for [[id elem] @elems] [rect-component id])
-     (when (and @highlighted (not= @selected @highlighted)) [highlight-box])
-     (when @selected [controls-component])
-     ]]
+     ^{:key "shirts"} [shirts]
+     (for [[id elem] @elems]
+       ^{:key (str "elem-" id)} [rect-component-with-meta (assoc elem :id id)])
+     (when (and @highlighted (not= @selected @highlighted))
+       (when-let [bb (@bounding-boxes @highlighted)] [highlight-box bb]))
+     (when-let [bb (@bounding-boxes @selected)]
+       [controls-component bb])]]
    [options-component]
    [shirt-color-selector]])
 
@@ -688,7 +672,9 @@
                    (swap! debug assoc :text v))
                   selection-change
                   ([{:keys [old new]}]
-                     (swap! debug assoc :selection-old old :selection-new new)
+                     ;(swap! debug assoc :selection-old old :selection-new new)
+                     (reset! debug (dissoc (selected-elem) :d))
+                     (when (= old @highlighted) (reset! highlighted nil))
                      (when (and (not (nil? new))
                                 (not= (:type (selected-elem)) @active-options))
                        (reset! active-options (:type (selected-elem)))))

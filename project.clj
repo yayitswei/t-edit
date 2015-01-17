@@ -15,7 +15,7 @@
     :builds [{:id "tedit"
               :source-paths ["src"]
               :compiler {
-                :output-to "public/js/tedit.js"
+                :output-to "public/js/out/tedit.js"
                 :output-dir "public/js/out"
                 :optimizations :none
-                :source-map "public/js/tedit.js.map"}}]})
+                :source-map "public/js/out/tedit.js.map"}}]})

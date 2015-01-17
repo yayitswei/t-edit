@@ -1,6 +1,0 @@
-{"version":3,
- "file":"/Users/wei/code/tedit/out/reagent/impl/reactimport.js",
- "sources":["reactimport.cljs"],
- "lineCount":7,
- "mappings":";AAAA;;AAKA,AAAKA,iCAAMC;AAIX",
- "names":["reagent.impl.reactimport/React", "js/React"]}
